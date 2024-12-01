@@ -1,0 +1,142 @@
+-- LEVEL 1
+
+-- Question 1: Number of users with sessions
+SELECT count(user_id) AS total_users
+FROM sessions;
+
+-- Question 2: Number of chargers used by user with id 1
+SELECT COUNT(charger_id) AS total_chargers
+FROM sessions
+WHERE user_id = '1';
+
+-- LEVEL 2
+
+-- Question 3: Number of sessions per charger type (AC/DC):
+SELECT COUNT(s.id) AS recount_sessions, c.type
+FROM sessions AS s, chargers AS c
+GROUP BY 2;
+
+-- Question 4: Chargers being used by more than one user
+SELECT COUNT(s.charger_id) AS recount_chargers, u.id
+FROM sessions AS s
+JOIN users AS u
+ON s.user_id = u.id
+GROUP BY u.id
+ORDER BY 1 desc;
+
+-- Question 5: Average session time per charger
+SELECT charger_id, ROUND(AVG(julianday(s.end_time) - julianday(s.start_time)),2) AS sessions_avg_days
+FROM sessions AS s 
+GROUP BY 1
+ORDER BY 2 DESC
+;
+
+
+-- LEVEL 3
+
+-- Question 6: Full username of users that have used more than one charger in one day (NOTE: for date only consider start_time)
+SELECT s.start_time, u.name, u.surname, count(charger_id) as total_chargers_used
+FROM users AS u
+LEFT JOIN sessions AS s
+ON u.id = s.user_id
+GROUP BY 2
+HAVING count(charger_id) > 1
+;
+
+
+-- Question 7: Top 3 chargers with longer sessions
+SELECT s.charger_id, ROUND(julianday(s.end_time) - julianday(s.start_time),2) AS sessions_days
+FROM sessions AS s
+ORDER BY 2 DESC
+LIMIT 3;
+
+-- Question 8: Average number of users per charger (per charger in general, not per charger_id specifically)
+SELECT ch.type, COUNT(s.user_id) AS charger_users
+FROM chargers AS ch
+LEFT JOIN sessions AS s
+ON ch.id = s.charger_id
+GROUP BY 1;
+
+-- Question 9: Top 3 users with more chargers being used
+SELECT u.id, COUNT(s.charger_id) AS chargers_used
+FROM users AS u
+LEFT JOIN sessions AS s
+ON u.id = s.user_id
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 3;
+
+-- LEVEL 4
+
+-- Question 10: Number of users that have used only AC chargers, DC chargers or both
+SELECT ch.type, COUNT(u.id) as users_count, u.id
+FROM chargers as ch
+LEFT JOIN sessions AS s
+ON ch.id = s.charger_id
+    LEFT JOIN users AS u
+    ON u.id = s.user_id
+GROUP BY 3,1
+ORDER BY 3;
+
+-- Question 11: Monthly average number of users per charger
+SELECT AVG(COUNT(user_id)), EXTRACT
+FROM sessions AS s
+LEFT JOIN chargers AS ch
+    ON ch.id = s.charger_id;
+
+-- Question 12: Top 3 users per charger (for each charger, number of sessions)
+SELECT s.charger_id, COUNT(s.id) AS sessions_number, s.user_id, RANK() OVER (PARTITION BY s.charger_id ORDER BY 2 DESC) AS top_users
+FROM sessions AS s
+GROUP BY 1,3
+;
+
+-- LEVEL 5
+
+-- Question 13: Top 3 users with longest sessions per month (consider the month of start_time)
+WITH session_durations AS (
+    SELECT 
+        user_id,
+        strftime('%Y-%m', start_time) AS session_month,
+        (julianday(end_time) - julianday(start_time)) * 24 * 60 AS duration_minutes
+    FROM sessions
+),
+ranked_sessions AS (
+    SELECT 
+        user_id,
+        session_month,
+        duration_minutes,
+        RANK() OVER (PARTITION BY session_month ORDER BY duration_minutes DESC) AS rank
+    FROM session_durations
+)
+SELECT 
+    session_month,
+    user_id,
+    duration_minutes
+FROM ranked_sessions
+WHERE rank <= 3
+ORDER BY session_month, rank;
+
+-- Question 14. Average time between sessions for each charger for each month (consider the month of start_time)
+WITH session_intervals AS (
+    SELECT 
+        charger_id,
+        strftime('%Y-%m', start_time) AS session_month,
+        start_time,
+        LEAD(start_time) OVER (PARTITION BY charger_id, strftime('%Y-%m', start_time) ORDER BY start_time) AS next_start_time
+    FROM sessions
+),
+time_differences AS (
+    SELECT 
+        charger_id,
+        session_month,
+        (julianday(next_start_time) - julianday(start_time)) * 24 * 60 AS interval_minutes
+    FROM session_intervals
+    WHERE next_start_time IS NOT NULL
+)
+SELECT 
+    charger_id,
+    session_month,
+    AVG(interval_minutes) AS avg_interval_minutes
+FROM time_differences
+GROUP BY charger_id, session_month
+ORDER BY charger_id, session_month;
